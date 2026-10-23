@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#4C1D95"><meta name="robots" content="noindex,nofollow">
+<title>Teacher dashboard · Behruz Vocab Trainer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Great+Vibes&display=swap">
+<link rel="stylesheet" href="/app.css">
+<style>
+.aw{max-width:1040px;margin:0 auto;padding:0 max(16px,env(safe-area-inset-left,0px))}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 14px}
+.tab{padding:9px 16px;border-radius:999px;background:var(--surface);border:2px solid var(--line);font-weight:600;font-size:14px}
+.tab.on{background:var(--violet);border-color:var(--violet);color:#fff}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:16px 0}
+.kpi{background:var(--surface);border:2px solid var(--line);border-radius:18px;padding:14px 16px;box-shadow:var(--shadow)}
+.kpi b{display:block;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:12.5px}
+.card{background:var(--surface);border:2px solid var(--line);border-radius:20px;padding:16px;box-shadow:var(--shadow);margin-bottom:14px}
+.tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.tools input[type=search],.inp{font:inherit;padding:10px 14px;border-radius:12px;border:2px solid var(--line);background:var(--surface);color:var(--ink);min-width:0}
+.tools input[type=search]{flex:1;min-width:180px}
+.btn{padding:10px 16px;border-radius:12px;background:var(--violet);color:#fff;font-weight:600;font-size:14px}
+.btn.alt{background:var(--surface);color:var(--violet);border:2px solid var(--line)}
+.btn.red{background:var(--red)}
+.btn.sm{padding:6px 12px;font-size:13px}
+:root[data-theme="dark"] .btn.alt{color:var(--sig)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn.alt{color:var(--sig)}}
+.tw{overflow-x:auto;border-radius:14px;border:2px solid var(--line)}
+table{border-collapse:collapse;width:100%;min-width:760px;background:var(--surface)}
+th,td{padding:10px 12px;text-align:left;font-size:13.5px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:var(--surface2);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);cursor:pointer;user-select:none}
+tr.row{cursor:pointer}tr.row:hover td{background:var(--surface2)}
+td.n{font-variant-numeric:tabular-nums}
+.pbar{display:inline-block;width:70px;height:8px;border-radius:99px;background:var(--surface2);overflow:hidden;vertical-align:middle;margin-right:8px}
+.pbar i{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--red))}
+.stx{color:var(--star);font-weight:700}
+.muted{color:var(--muted)}
+.pillm{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:600;background:var(--surface2)}
+.good{color:var(--ok)}.warn{color:var(--bad)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.sc{border:2px solid var(--line);border-radius:12px;padding:8px 10px;font-size:12.5px;background:var(--surface)}
+.sc b{display:block;font-size:15px}
+.sc.na{opacity:.55}
+textarea.inp{width:100%;min-height:200px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+.frow{display:grid;grid-template-columns:1fr 1fr 1.4fr;gap:10px;margin-bottom:10px}
+@media(max-width:640px){.frow{grid-template-columns:1fr}}
+.msg{font-size:13.5px;font-weight:600;margin-top:8px}
+.dl{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--line)}
+.dl:last-child{border:0}.dl .t{flex:1;min-width:160px}
+.back{margin:14px 0}
+h2.s{font-size:18px;margin:6px 0 10px}
+.sign-wrap .in{max-width:1040px}
+</style></head><body>
+<div id="app"></div>
+<div class="sign-wrap" aria-hidden="true"><div class="in"><span class="sig">Behruz</span><span class="sig">Behruz</span></div></div>
+<script src="/admin.js"></script>
+</body></html>
