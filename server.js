@@ -42,6 +42,18 @@ CREATE INDEX IF NOT EXISTS att_student ON attempts(student_id, created_at);
 `);
 
 const now = () => Date.now();
+/* weeks run Monday 00:00 to Sunday 24:00 in the class time zone (default Tashkent, UTC+5) */
+const TZ_MIN = Number(process.env.TZ_OFFSET_MIN || 300);
+const DAY_MS = 86400e3;
+const localDay = t => Math.floor((t + TZ_MIN * 60e3) / DAY_MS);
+function weekStartMs(t = now()) { const d = localDay(t); return (d - ((d + 3) % 7)) * DAY_MS - TZ_MIN * 60e3; }
+function streakFor(sid) {
+  const days = new Set(db.prepare('SELECT created_at FROM attempts WHERE student_id=? ORDER BY created_at DESC LIMIT 500').all(sid).map(r => localDay(r.created_at)));
+  const today = localDay(now());
+  let d = days.has(today) ? today : days.has(today - 1) ? today - 1 : null, count = 0;
+  while (d !== null && days.has(d)) { count++; d--; }
+  return { count, today: days.has(today) };
+}
 
 /* ---------- seed the first days ---------- */
 if (db.prepare('SELECT COUNT(*) c FROM days').get().c === 0) {
@@ -166,7 +178,7 @@ app.get('/api/bootstrap', auth, (req, res) => {
   const progress = {};
   db.prepare('SELECT day_id,state FROM progress WHERE student_id=?').all(req.student.id)
     .forEach(r => { try { progress[r.day_id] = JSON.parse(r.state); } catch (e) {} });
-  res.json({ student: { name: req.student.name, email: req.student.email }, days, progress, rating: ratingSummary(req.student.id) });
+  res.json({ student: { name: req.student.name, email: req.student.email }, days, progress, rating: ratingSummary(req.student.id), streak: streakFor(req.student.id) });
 });
 
 app.get('/api/days/:id', auth, (req, res) => {
@@ -198,7 +210,7 @@ app.post('/api/attempts', auth, (req, res) => {
     VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`).run(req.student.id, day, String(b.session).slice(0, 12), int(b.pct, 0, 100), int(b.stars, 0, 3),
     int(b.correct, 0, 1000), int(b.total, 0, 1000), int(b.xp, 0, 100000), int(b.bestStreak, 0, 1000), int(b.seconds, 0, 86400),
     JSON.stringify((Array.isArray(b.misses) ? b.misses : []).slice(0, 100).map(Number)), now());
-  res.json({ ok: true });
+  res.json({ ok: true, streak: streakFor(req.student.id) });
 });
 
 app.post('/api/rating', auth, (req, res) => {
@@ -218,20 +230,33 @@ function shortName(n) {
   return p.length > 1 ? p[0] + ' ' + p[p.length - 1][0].toUpperCase() + '.' : p[0];
 }
 app.get('/api/leaderboard', auth, (req, res) => {
-  const sess = {};
-  db.prepare('SELECT id,rows FROM days WHERE hidden=0').all().forEach(d => { sess[d.id] = Math.ceil(JSON.parse(d.rows).length / 25); });
+  const week = req.query.scope !== 'all';
   const by = {};
-  db.prepare('SELECT student_id,day_id,state FROM progress').all().forEach(p => {
-    if (!sess[p.day_id]) return;
-    let st; try { st = JSON.parse(p.state); } catch (e) { return; }
-    const o = by[p.student_id] || (by[p.student_id] = { stars: 0, xp: 0 });
-    Object.keys(st.sessions || {}).forEach(k => { if (Number(k) <= sess[p.day_id]) o.stars += Math.min(3, Number(st.sessions[k].stars) || 0); });
-    o.xp += Math.max(0, Number(st.xp) || 0);
-  });
+  if (week) {
+    const live = new Set(db.prepare('SELECT id FROM days WHERE hidden=0').all().map(d => d.id));
+    // stars: best result per session this week (weak-word rounds give XP only); xp: everything earned this week
+    db.prepare(`SELECT student_id,day_id,session,MAX(stars) ms,SUM(xp) xp FROM attempts WHERE created_at>=? GROUP BY student_id,day_id,session`)
+      .all(weekStartMs()).forEach(r => {
+        if (!live.has(r.day_id)) return;
+        const o = by[r.student_id] || (by[r.student_id] = { stars: 0, xp: 0 });
+        o.xp += Math.max(0, r.xp || 0);
+        if (r.session !== 'weak') o.stars += Math.min(3, r.ms || 0);
+      });
+  } else {
+    const sess = {};
+    db.prepare('SELECT id,rows FROM days WHERE hidden=0').all().forEach(d => { sess[d.id] = Math.ceil(JSON.parse(d.rows).length / 25); });
+    db.prepare('SELECT student_id,day_id,state FROM progress').all().forEach(p => {
+      if (!sess[p.day_id]) return;
+      let st; try { st = JSON.parse(p.state); } catch (e) { return; }
+      const o = by[p.student_id] || (by[p.student_id] = { stars: 0, xp: 0 });
+      Object.keys(st.sessions || {}).forEach(k => { if (Number(k) <= sess[p.day_id]) o.stars += Math.min(3, Number(st.sessions[k].stars) || 0); });
+      o.xp += Math.max(0, Number(st.xp) || 0);
+    });
+  }
   const rows = db.prepare('SELECT id,name FROM students').all()
     .map(r => ({ id: r.id, name: shortName(r.name), stars: (by[r.id] || {}).stars || 0, xp: (by[r.id] || {}).xp || 0 }))
     .filter(r => r.stars > 0 || r.xp > 0 || r.id === req.student.id);
-  res.json({ me: req.student.id, rows: rows.slice(0, 500) });
+  res.json({ me: req.student.id, scope: week ? 'week' : 'all', rows: rows.slice(0, 500), resetsAt: week ? weekStartMs() + 7 * DAY_MS : null });
 });
 
 /* ---------- teacher API ---------- */
