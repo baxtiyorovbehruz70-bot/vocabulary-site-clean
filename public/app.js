@@ -1,6 +1,7 @@
 (function(){
 'use strict';
 var WORDS=[],SESS=[],DAY=null,SIZE=25;
+var STREAK={count:0,today:false};
 var USER=null,DAYS=[],PROG={},RATING={avg:0,count:0,mine:0},CFG={needsCode:false};
 var save={sessions:{},xp:0,weak:{},sound:true};
 try{save.sound=localStorage.getItem('bv-sound')!=='0'}catch(e){}
@@ -35,7 +36,7 @@ function persist(){
 }
 function logAttempt(){
   var body={dayId:DAY.id,session:Q.id,pct:Q.pct,stars:Q.stars,correct:Q.correct,total:Q.N,xp:Q.xp,bestStreak:Q.best,seconds:Math.round((Date.now()-Q.t0)/1000),misses:Q.misses};
-  api('POST','/api/attempts',body).catch(function(){});
+  api('POST','/api/attempts',body).then(function(r){if(r&&r.streak)STREAK=r.streak}).catch(function(){});
 }
 function setDay(info,rows){
   DAY=info;
@@ -317,7 +318,8 @@ function confetti(){
 }
 
 /* ---------- leaderboard ---------- */
-var LB=null,LBMODE='stars';
+var LB=null,LBMODE='stars',LBSCOPE='week';
+try{LBSCOPE=sessionStorage.getItem('bv-lbscope')==='all'?'all':'week'}catch(e){}
 function lbSorted(){
   if(!LB)return [];
   var m=LBMODE;
@@ -335,16 +337,20 @@ function lbHtml(){
   }
   var h=top.map(function(r,i){return row(r,i,false)}).join('');
   if(me&&myi>=10)h+='<div class="lbgap">···</div>'+row(me,myi,true);
-  if(!top.length)h='<div class="empty-s">Be the first on the board. Finish a session!</div>';
+  if(!top.length||(LBSCOPE==='week'&&all.every(function(r){return !r.stars&&!r.xp})))h='<div class="empty-s">'+(LBSCOPE==='week'?'No one has practised this week yet. Be the first!':'Be the first on the board. Finish a session!')+'</div>';
+  if(LBSCOPE==='week'&&LB.resetsAt){var dl=Math.max(0,Math.ceil((LB.resetsAt-Date.now())/86400e3));h+='<div class="lbnote">New week starts in '+dl+' day'+(dl===1?'':'s')+'</div>'}
   return h;
 }
 function lbRender(){
   var box=document.getElementById('lbbox');if(!box)return;
-  box.innerHTML='<div class="seg" role="tablist"><button class="'+(LBMODE==='stars'?'on':'')+'" data-act="lbmode" data-m="stars" role="tab">'+IC.star+'Stars</button>'+
+  box.innerHTML='<div class="seg" role="tablist"><button class="'+(LBSCOPE==='week'?'on':'')+'" data-act="lbscope" data-sc="week" role="tab">This week</button>'+
+    '<button class="'+(LBSCOPE==='all'?'on':'')+'" data-act="lbscope" data-sc="all" role="tab">All time</button></div>'+
+    '<div class="seg" role="tablist"><button class="'+(LBMODE==='stars'?'on':'')+'" data-act="lbmode" data-m="stars" role="tab">'+IC.star+'Stars</button>'+
     '<button class="'+(LBMODE==='xp'?'on':'')+'" data-act="lbmode" data-m="xp" role="tab">'+IC.bolt+'XP</button></div><div class="lb">'+lbHtml()+'</div>';
 }
 function lbLoad(){
-  api('GET','/api/leaderboard').then(function(d){LB=d;lbRender()}).catch(function(){});
+  var sc=LBSCOPE;
+  api('GET','/api/leaderboard?scope='+sc).then(function(d){if(sc===LBSCOPE){LB=d;lbRender()}}).catch(function(){});
 }
 
 /* ---------- web app screens ---------- */
@@ -364,6 +370,21 @@ function rateRow(){
   return h;
 }
 function avgText(){return RATING.count?'<div class="avg">'+IC.star+RATING.avg.toFixed(1)+'<small>('+RATING.count+' rating'+(RATING.count>1?'s':'')+')</small></div>':'<div class="avg"><small>No ratings yet</small></div>'}
+function streakHtml(){
+  var n=STREAK.count||0;
+  var t=n>0?(n+'-day streak'+(STREAK.today?'':' · practise today to keep it')):'Start your streak today';
+  return '<div class="streak'+(n>0&&STREAK.today?' hot':'')+'">'+IC.flame+'<span>'+t+'</span></div>';
+}
+/* colour themes: classic (original) or navy (optional, calmer) */
+var SKIN='classic';
+try{SKIN=localStorage.getItem('bv-skin')==='navy'?'navy':'classic'}catch(e){}
+function setSkin(s){
+  SKIN=s;try{localStorage.setItem('bv-skin',s)}catch(e){}
+  var r=document.documentElement;
+  if(s==='navy'){r.setAttribute('data-skin','navy');r.setAttribute('data-theme','dark')}else{r.removeAttribute('data-skin');r.removeAttribute('data-theme')}
+  var m=document.querySelector('meta[name=theme-color]');if(m)m.setAttribute('content',s==='navy'?'#0B1220':'#4C1D95');
+}
+setSkin(SKIN);
 var HUBTAB='days';
 try{HUBTAB=sessionStorage.getItem('bv-tab')==='board'?'board':'days'}catch(e){}
 function dayCards(){
@@ -399,8 +420,8 @@ function hub(){
   for(var i=0;i<DAYS.length;i++){if(dayProg(DAYS[i]).done<DAYS[i].sessions){first=DAYS[i];break}}
   var first1=USER.name.split(' ')[0];
   show('<div class="band"><div class="wrap hero">'+
-    '<div class="toprow"><span class="pill">Class</span><button class="icon ghost txt" data-act="logout">Log out</button></div>'+
-    '<p class="hello">Hi, '+esc(first1)+'</p><h1>Vocab Trainer</h1><p class="sub">Pick a day and keep your stars growing</p>'+
+    '<div class="toprow"><span class="pill">Class</span><span class="rt"><button class="icon ghost txt" data-act="skin" aria-label="Change colour theme">'+(SKIN==='navy'?'Classic look':'Navy look')+'</button><button class="icon ghost txt" data-act="logout">Log out</button></span></div>'+
+    '<p class="hello">Hi, '+esc(first1)+'</p>'+streakHtml()+'<h1>Vocab Trainer</h1><p class="sub">Pick a day and keep your stars growing</p>'+
     '<div class="stats"><div class="stat"><b>'+IC.star+s.stars+'/'+s.poss+'</b><span>Stars</span></div>'+
     '<div class="stat"><b>'+IC.bolt+s.xp+'</b><span>XP</span></div>'+
     '<div class="stat"><b>'+IC.target+s.weak+'</b><span>Weak words</span></div></div></div></div>'+
@@ -445,13 +466,13 @@ function login(msg){
 function start(){
   loading();
   return api('GET','/api/bootstrap').then(function(b){
-    USER=b.student;DAYS=b.days;PROG=b.progress||{};RATING=b.rating;hub();flush();
+    USER=b.student;DAYS=b.days;PROG=b.progress||{};RATING=b.rating;STREAK=b.streak||STREAK;hub();flush();
   });
 }
 function boot(){
   fetch('/api/config').then(function(r){return r.json()}).catch(function(){return {}}).then(function(c){
     CFG=c||{};
-    return api('GET','/api/bootstrap').then(function(b){USER=b.student;DAYS=b.days;PROG=b.progress||{};RATING=b.rating;hub();flush()})
+    return api('GET','/api/bootstrap').then(function(b){USER=b.student;DAYS=b.days;PROG=b.progress||{};RATING=b.rating;STREAK=b.streak||STREAK;hub();flush()})
       .catch(function(e){if(e.message!=='auth'&&e.status!==401){login('Could not reach the server. Check your connection.')}});
   });
 }
@@ -468,6 +489,8 @@ app.addEventListener('click',function(e){
     case 'home':dayHome();break;
     case 'hub':hub();break;
     case 'lbmode':LBMODE=b.dataset.m;lbRender();break;
+    case 'lbscope':LBSCOPE=b.dataset.sc==='all'?'all':'week';try{sessionStorage.setItem('bv-lbscope',LBSCOPE)}catch(e){}LB=null;lbRender();lbLoad();break;
+    case 'skin':setSkin(SKIN==='navy'?'classic':'navy');hub();break;
     case 'hubtab':setHubTab(b.dataset.t);break;
     case 'rate':doRate(Number(b.dataset.v));break;
     case 'logout':api('POST','/api/logout',{}).catch(function(){}).then(function(){USER=null;PROG={};login()});break;
