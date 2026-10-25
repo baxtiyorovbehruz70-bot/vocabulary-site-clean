@@ -318,11 +318,316 @@ const dayInfo = d => {
   };
 };
 
-// =====================================================================
-// MISSING: STUDENT-FACING ROUTES (login/register, me, days list, progress,
-// quiz attempts, leaderboard, rating). They were NOT in the code you pasted.
-// Paste them here, after the setup block and before the admin stats below.
-// =====================================================================
+
+function publicStudent(s) {
+  return {
+    id: Number(s.id),
+    name: s.name,
+    email: s.email
+  };
+}
+
+// Public configuration used by the frontend.
+app.get('/api/config', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ needsCode: !!CLASS_CODE });
+});
+
+// Student login / registration.
+app.post('/api/login', async (req, res, next) => {
+  try {
+    if (limited('login:' + req.ip, 20, 600000)) {
+      return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+    }
+
+    const b = req.body || {};
+    const name = String(b.name || '').trim().slice(0, 80);
+    const email = String(b.email || '').trim().toLowerCase().slice(0, 254);
+    const code = String(b.code || '').trim();
+
+    if (!name || !EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: 'Enter your name and a valid email address.' });
+    }
+
+    if (CLASS_CODE && code !== CLASS_CODE) {
+      return res.status(401).json({ error: 'Incorrect class code.' });
+    }
+
+    const t = now();
+    let result = await pool.query(
+      `INSERT INTO students(email, name, created_at, last_seen)
+       VALUES($1, $2, $3, $3)
+       ON CONFLICT(email) DO UPDATE
+       SET name = EXCLUDED.name, last_seen = EXCLUDED.last_seen
+       RETURNING id, name, email`,
+      [email, name, t]
+    );
+
+    const student = result.rows[0];
+    const token = crypto.randomBytes(32).toString('hex');
+
+    await pool.query(
+      'INSERT INTO sessions(token, student_id, created_at) VALUES($1, $2, $3)',
+      [token, student.id, t]
+    );
+
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    res.setHeader('Set-Cookie',
+      'sid=' + token +
+      '; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000' +
+      (secure ? '; Secure' : '')
+    );
+
+    res.json({ ok: true, student: publicStudent(student) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Student logout.
+app.post('/api/logout', async (req, res, next) => {
+  try {
+    const token = cookies(req).sid;
+    if (token) {
+      await pool.query('DELETE FROM sessions WHERE token=$1', [token]);
+    }
+
+    res.setHeader('Set-Cookie',
+      'sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' +
+      ((req.secure || req.headers['x-forwarded-proto'] === 'https') ? '; Secure' : '')
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Initial data needed by the student dashboard.
+app.get('/api/bootstrap', auth, async (req, res, next) => {
+  try {
+    const daysResult = await pool.query(
+      'SELECT * FROM days WHERE hidden=0 ORDER BY sort, id'
+    );
+
+    const progressResult = await pool.query(
+      'SELECT day_id, state FROM progress WHERE student_id=$1',
+      [req.student.id]
+    );
+
+    const progress = {};
+    for (const p of progressResult.rows) {
+      try {
+        progress[String(p.day_id)] = JSON.parse(p.state);
+      } catch (_) {
+        progress[String(p.day_id)] = {};
+      }
+    }
+
+    const ratingResult = await pool.query(
+      `SELECT AVG(stars) AS avg, COUNT(*) AS count
+       FROM ratings`
+    );
+    const mineResult = await pool.query(
+      'SELECT stars, comment FROM ratings WHERE student_id=$1',
+      [req.student.id]
+    );
+    const avgRow = ratingResult.rows[0];
+    const mine = mineResult.rows[0] || null;
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      student: publicStudent(req.student),
+      days: daysResult.rows.map(dayInfo),
+      progress,
+      rating: {
+        avg: Number(avgRow.count) ? Math.round(Number(avgRow.avg) * 10) / 10 : 0,
+        count: Number(avgRow.count),
+        mine: mine ? Number(mine.stars) : null,
+        comment: mine ? mine.comment : ''
+      },
+      streak: await streakFor(req.student.id)
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Load vocabulary for one day.
+app.get('/api/days/:id', auth, async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM days WHERE id=$1 AND hidden=0',
+      [Number(req.params.id)]
+    );
+    const d = result.rows[0];
+
+    if (!d) return res.status(404).json({ error: 'Day not found' });
+
+    res.json({
+      ...dayInfo(d),
+      rows: JSON.parse(d.rows)
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Save a student's progress for one day.
+app.put('/api/progress/:id', auth, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const state = req.body && req.body.state;
+
+    if (!Number.isSafeInteger(id) || id < 1 || !state ||
+        typeof state !== 'object' || Array.isArray(state)) {
+      return res.status(400).json({ error: 'Invalid progress data' });
+    }
+
+    const day = await pool.query(
+      'SELECT id FROM days WHERE id=$1 AND hidden=0',
+      [id]
+    );
+    if (!day.rows.length) {
+      return res.status(404).json({ error: 'Day not found' });
+    }
+
+    await pool.query(
+      `INSERT INTO progress(student_id, day_id, state, updated_at)
+       VALUES($1, $2, $3, $4)
+       ON CONFLICT(student_id, day_id) DO UPDATE
+       SET state=EXCLUDED.state, updated_at=EXCLUDED.updated_at`,
+      [req.student.id, id, JSON.stringify(state), now()]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Record a completed quiz attempt.
+app.post('/api/attempts', auth, async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const dayId = Number(b.dayId);
+    const session = String(b.session || '').slice(0, 100);
+    const total = Number(b.total);
+    const correct = Number(b.correct);
+
+    if (!Number.isSafeInteger(dayId) || dayId < 1 ||
+        !session || !Number.isInteger(total) || total < 1 || total > 500 ||
+        !Number.isInteger(correct) || correct < 0 || correct > total) {
+      return res.status(400).json({ error: 'Invalid attempt data' });
+    }
+
+    const day = await pool.query(
+      'SELECT id FROM days WHERE id=$1 AND hidden=0',
+      [dayId]
+    );
+    if (!day.rows.length) {
+      return res.status(404).json({ error: 'Day not found' });
+    }
+
+    const integer = (v, max = 1000000) =>
+      Math.max(0, Math.min(max, Number.isFinite(Number(v)) ? Math.round(Number(v)) : 0));
+
+    await pool.query(
+      `INSERT INTO attempts(
+        student_id, day_id, session, pct, stars, correct, total,
+        xp, best_streak, seconds, misses, created_at
+      ) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [
+        req.student.id,
+        dayId,
+        session,
+        integer(b.pct, 100),
+        integer(b.stars, 5),
+        correct,
+        total,
+        integer(b.xp),
+        integer(b.bestStreak),
+        integer(b.seconds, 86400),
+        JSON.stringify(Array.isArray(b.misses) ? b.misses.slice(0, 500) : []),
+        now()
+      ]
+    );
+
+    res.json({ ok: true, streak: await streakFor(req.student.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Leaderboard for the current week or all time.
+app.get('/api/leaderboard', auth, async (req, res, next) => {
+  try {
+    const weekly = req.query.scope === 'week';
+    const since = weekStartMs();
+
+    const result = await pool.query(
+      `SELECT st.id, st.name,
+              COALESCE(SUM(a.stars),0) AS stars,
+              COALESCE(SUM(a.xp),0) AS xp
+       FROM students st
+       LEFT JOIN attempts a
+         ON a.student_id=st.id
+        ${weekly ? 'AND a.created_at >= $1' : ''}
+       GROUP BY st.id, st.name
+       ORDER BY stars DESC, xp DESC, st.name ASC
+       LIMIT 100`,
+      weekly ? [since] : []
+    );
+
+    res.json({
+      rows: result.rows.map(r => ({
+        id: Number(r.id),
+        name: r.name,
+        stars: Number(r.stars),
+        xp: Number(r.xp)
+      })),
+      me: Number(req.student.id)
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Submit or update a student's rating.
+app.post('/api/rating', auth, async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const stars = Number(b.stars);
+    const comment = String(b.comment || '').trim().slice(0, 1000);
+
+    if (!Number.isInteger(stars) || stars < 1 || stars > 5) {
+      return res.status(400).json({ error: 'Rating must be between 1 and 5.' });
+    }
+
+    await pool.query(
+      `INSERT INTO ratings(student_id, stars, comment, updated_at)
+       VALUES($1,$2,$3,$4)
+       ON CONFLICT(student_id) DO UPDATE
+       SET stars=EXCLUDED.stars, comment=EXCLUDED.comment,
+           updated_at=EXCLUDED.updated_at`,
+      [req.student.id, stars, comment, now()]
+    );
+
+    const result = await pool.query(
+      'SELECT AVG(stars) AS avg, COUNT(*) AS count FROM ratings'
+    );
+
+    res.json({
+      avg: Math.round(Number(result.rows[0].avg) * 10) / 10,
+      count: Number(result.rows[0].count),
+      mine: stars,
+      comment
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 
 // ---------- Part 3: student statistics and admin endpoints ----------
 
