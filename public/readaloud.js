@@ -95,14 +95,14 @@
 
   var css =
     '.vv-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}' +
-    '.vv-btn{border:0;border-radius:999px;padding:10px 16px;min-height:44px;font:600 15px/1 inherit;' +
+    '.vv-btn{border:0;border-radius:999px;padding:10px 16px;min-height:44px;font-weight:600;font-size:15px;font-family:inherit;line-height:1;' +
     'background:#7c3aed;color:#fff;cursor:pointer}' +
     '.vv-btn.alt{background:#334155}' +
     '.vv-btn:focus-visible{outline:3px solid #fbbf24;outline-offset:2px}' +
     '.vv-btn.on{background:#16a34a}' +
-    '.vv-auto{display:flex;gap:6px;align-items:center;color:#cbd5e1;font-size:14px}' +
-    '.vv-msg{flex-basis:100%;font-size:15px;min-height:1.2em;color:#e2e8f0}' +
-    '.vv-msg.good{color:#4ade80}.vv-msg.bad{color:#fbbf24}';
+    '.vv-auto{display:flex;gap:6px;align-items:center;color:inherit;opacity:.85;font-size:14px}' +
+    '.vv-msg{flex-basis:100%;font-size:15px;min-height:1.2em;color:inherit}' +
+    '.vv-msg.good{color:var(--ok,#16a34a);font-weight:600}.vv-msg.bad{color:var(--bad,#dc2626);font-weight:600}';
 
   function injectCss() {
     if (document.getElementById('vv-css')) return;
