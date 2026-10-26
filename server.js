@@ -1137,11 +1137,11 @@ app.get('/api/admin/backup.json', admin, async (req, res, next) => {
 
     for (const table of [
       'students',
-      'sessions',
       'days',
       'progress',
       'attempts',
-      'ratings'
+      'ratings',
+      'pronounced'
     ]) {
       tables[table] = (
         await pool.query(`SELECT * FROM ${table}`)
