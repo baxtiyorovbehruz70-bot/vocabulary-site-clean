@@ -94,6 +94,14 @@ async function initDb() {
       updated_at BIGINT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS pronounced (
+      student_id BIGINT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      day_id BIGINT NOT NULL REFERENCES days(id) ON DELETE CASCADE,
+      word INTEGER NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY(student_id, day_id, word)
+    );
+    
     CREATE INDEX IF NOT EXISTS att_student
       ON attempts(student_id, created_at);
   `);
@@ -559,21 +567,61 @@ app.post('/api/attempts', auth, async (req, res, next) => {
   }
 });
 
+const PRON_XP = 4;
+
+// Award XP once per word for correct pronunciation.
+app.post('/api/pronounce', auth, async (req, res, next) => {
+  try {
+    if (limited('pron1:' + req.student.id, 1, 2000) ||
+        limited('pron2:' + req.student.id, 100, 3600e3)) {
+      return res.status(429).json({ error: 'Too fast. Wait a moment.' });
+    }
+
+    const b = req.body || {};
+    const dayId = Number(b.dayId);
+    const word = Number(b.word);
+
+    if (!Number.isSafeInteger(dayId) || dayId < 1 ||
+        !Number.isInteger(word) || word < 0) {
+      return res.status(400).json({ error: 'Invalid data' });
+    }
+
+    const d = (
+      await pool.query('SELECT rows FROM days WHERE id=$1 AND hidden=0', [dayId])
+    ).rows[0];
+
+    if (!d) return res.status(404).json({ error: 'Day not found' });
+    if (word >= JSON.parse(d.rows).length) {
+      return res.status(400).json({ error: 'Invalid word' });
+    }
+
+    const r = await pool.query(
+      `INSERT INTO pronounced(student_id, day_id, word, created_at)
+       VALUES($1,$2,$3,$4)
+       ON CONFLICT DO NOTHING`,
+      [req.student.id, dayId, word, now()]
+    );
+
+    const awarded = r.rowCount === 1;
+    res.json({ ok: true, awarded, xp: awarded ? PRON_XP : 0 });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Leaderboard for the current week or all time.
 app.get('/api/leaderboard', auth, async (req, res, next) => {
   try {
     const weekly = req.query.scope === 'week';
     const since = weekStartMs();
 
+       const w1 = weekly ? ' AND created_at >= $1' : '';
     const result = await pool.query(
       `SELECT st.id, st.name,
-              COALESCE(SUM(a.stars),0) AS stars,
-              COALESCE(SUM(a.xp),0) AS xp
+         COALESCE((SELECT SUM(stars) FROM attempts WHERE student_id=st.id${w1}),0) AS stars,
+         COALESCE((SELECT SUM(xp) FROM attempts WHERE student_id=st.id${w1}),0)
+           + ${PRON_XP} * (SELECT COUNT(*) FROM pronounced WHERE student_id=st.id${w1}) AS xp
        FROM students st
-       LEFT JOIN attempts a
-         ON a.student_id=st.id
-        ${weekly ? 'AND a.created_at >= $1' : ''}
-       GROUP BY st.id, st.name
        ORDER BY stars DESC, xp DESC, st.name ASC
        LIMIT 100`,
       weekly ? [since] : []
