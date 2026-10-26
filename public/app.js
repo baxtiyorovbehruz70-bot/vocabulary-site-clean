@@ -156,10 +156,12 @@ function card(){ST.flip=false;
     '<div class="deck"><div class="fc" id="fc" data-act="flip" role="button" tabindex="0" aria-label="Flip card">'+
     '<div class="face"><span class="secchip">'+esc(w.sec)+'</span><div class="big">'+esc(w.en)+'</div><span class="hint">Tap to see the Uzbek</span></div>'+
     '<div class="face back"><span class="secchip">'+esc(w.sec)+'</span><div class="big">'+esc(w.uz)+'</div><span class="en-s">'+esc(w.en)+'</span><span class="hint">Tap to flip back</span></div></div></div>'+
+    '<div id="vv-slot"></div>'+
     '<div class="navrow"><button class="cta alt" data-act="prev"'+(ST.pos===0?' disabled':'')+' aria-label="Previous">'+IC.back+'</button>'+
     (last?'<button class="cta" data-act="quiz" data-s="'+ST.id+'">Start quiz'+IC.next+'</button>':'<button class="cta" data-act="nextcard">Next'+IC.next+'</button>')+'</div>'+
     '<div style="text-align:center;padding-block:6px 24px"><button class="link" data-act="quiz" data-s="'+ST.id+'">Skip to the quiz</button></div></div>','study');
-}
+if(window.VocabVoice)VocabVoice.mount(document.getElementById('vv-slot'),w.en);
+  }
 
 /* quiz */
 function startQuiz(idxs,opts){
