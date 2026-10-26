@@ -123,7 +123,7 @@
 
   /* mount(container, word): add the toolbar under the current card.
    * Call again for each new card; the old toolbar is replaced. */
-  function mount(container, word) {
+  function mount(container, word, opts) {
     if (!container || !word) return;
     injectCss();
     var old = container.querySelector('.vv-bar');
@@ -161,6 +161,21 @@
           } else if (r.match) {
             msg.className = 'vv-msg good';
             msg.textContent = 'Great! Clear pronunciation.';
+            if (opts && typeof opts.onMatch === 'function') {
+              Promise.resolve()
+                .then(function () { return opts.onMatch(); })
+                .then(function (res) {
+                  if (res && res.awarded) {
+                    msg.textContent = 'Great! +' + res.xp + ' XP for pronunciation.';
+                  } else {
+                    msg.textContent = 'Great! You already earned XP for this word.';
+                  }
+                })
+                .catch(function () {
+                  msg.className = 'vv-msg bad';
+                  msg.textContent = 'Good pronunciation, but the XP could not be saved. Check your connection and try again.';
+                });
+            }
           } else {
             msg.className = 'vv-msg bad';
             msg.textContent = 'I heard "' + r.heard + '". Tap Listen, then try again.';
@@ -185,6 +200,10 @@
       bar.appendChild(lab);
     }
 
+    if (opts && opts.earned) {
+      msg.className = 'vv-msg good';
+      msg.textContent = 'Pronunciation XP earned for this word ✓';
+    }
     bar.appendChild(msg);
     container.appendChild(bar);
 
