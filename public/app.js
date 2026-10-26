@@ -3,7 +3,7 @@
 var WORDS=[],SESS=[],DAY=null,SIZE=25;
 var STREAK={count:0,today:false};
 var USER=null,DAYS=[],PROG={},RATING={avg:0,count:0,mine:0},CFG={needsCode:false};
-var save={sessions:{},xp:0,weak:{},sound:true};
+var save={sessions:{},xp:0,weak:{},pron:{},sound:true};
 try{save.sound=localStorage.getItem('bv-sound')!=='0'}catch(e){}
 
 /* ---------- server ---------- */
@@ -31,8 +31,19 @@ function flush(){
 }
 function persist(){
   if(!DAY||!USER)return;
-  var st={sessions:save.sessions,xp:save.xp,weak:save.weak};PROG[DAY.id]=st;
+    var st={sessions:save.sessions,xp:save.xp,weak:save.weak,pron:save.pron||{}};PROG[DAY.id]=st;
   var p=pend();p[DAY.id]=st;setPend(p);flush();
+}
+  function awardPron(w){
+  if(!DAY||!USER)return Promise.reject(new Error('no'));
+  save.pron=save.pron||{};
+  if(save.pron[w.i])return Promise.resolve({awarded:false,xp:0});
+  return api('POST','/api/pronounce',{dayId:DAY.id,word:w.i}).then(function(r){
+    save.pron[w.i]=1;
+    if(r&&r.awarded){save.xp+=r.xp;sfx.ok()}
+    persist();
+    return r;
+  });
 }
 function logAttempt(){
   var body={dayId:DAY.id,session:Q.id,pct:Q.pct,stars:Q.stars,correct:Q.correct,total:Q.N,xp:Q.xp,bestStreak:Q.best,seconds:Math.round((Date.now()-Q.t0)/1000),misses:Q.misses};
@@ -43,7 +54,7 @@ function setDay(info,rows){
   WORDS=rows.map(function(r,i){return {i:i,n:i+1,part:r[0],sec:r[1],en:r[2],uz:r[3]}});
   SESS=[];for(var s=0;s<WORDS.length;s+=SIZE){SESS.push({id:SESS.length+1,idx:WORDS.slice(s,s+SIZE).map(function(w){return w.i})})}
   var p=PROG[info.id]||{};
-  save={sessions:p.sessions||{},xp:p.xp||0,weak:p.weak||{},sound:save.sound};
+    save={sessions:p.sessions||{},xp:p.xp||0,weak:p.weak||{},pron:p.pron||{},sound:save.sound};
 }
 
 /* ---------- helpers ---------- */
@@ -160,7 +171,7 @@ function card(){ST.flip=false;
     '<div class="navrow"><button class="cta alt" data-act="prev"'+(ST.pos===0?' disabled':'')+' aria-label="Previous">'+IC.back+'</button>'+
     (last?'<button class="cta" data-act="quiz" data-s="'+ST.id+'">Start quiz'+IC.next+'</button>':'<button class="cta" data-act="nextcard">Next'+IC.next+'</button>')+'</div>'+
     '<div style="text-align:center;padding-block:6px 24px"><button class="link" data-act="quiz" data-s="'+ST.id+'">Skip to the quiz</button></div></div>','study');
-if(window.VocabVoice)VocabVoice.mount(document.getElementById('vv-slot'),w.en);
+if(window.VocabVoice)VocabVoice.mount(document.getElementById('vv-slot'),w.en,{earned:!!(save.pron&&save.pron[w.i]),onMatch:function(){return awardPron(w)}});
   }
 
 /* quiz */
