@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PWA check</title>
+<link rel="manifest" href="/manifest.json">
+<style>
+body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:16px;background:#0B1220;color:#e2e8f0}
+h1{font-size:20px;margin:0 0 12px}
+.r{padding:10px 12px;margin:8px 0;border-radius:10px;background:#1e293b;word-break:break-word}
+.ok{border-left:6px solid #22c55e}.bad{border-left:6px solid #ef4444}.info{border-left:6px solid #94a3b8}.warn{border-left:6px solid #f59e0b}
+button{font:600 16px system-ui;padding:12px 18px;border:0;border-radius:999px;background:#7c3aed;color:#fff;margin-top:8px}
+small{color:#94a3b8}
+</style></head><body>
+<h1>Install check</h1>
+<div id="out"></div>
+<button id="inst" hidden>Install app</button>
+<script>
+var out = document.getElementById('out');
+function add(cls, text){ var d=document.createElement('div'); d.className='r '+cls; d.textContent=text; out.appendChild(d); }
+var ua = navigator.userAgent;
+add('info', 'Browser: ' + ua);
+var inApp = /Telegram|Instagram|FBAN|FBAV|Line\/|; wv\)|Snapchat|TikTok/i.test(ua);
+add(inApp ? 'bad' : 'ok', inApp ? 'This looks like an in-app browser (Telegram, Instagram, etc). Open the site in Chrome itself.' : 'Not an in-app browser.');
+add(/OPR\/|SamsungBrowser|Firefox|Edg\//i.test(ua) ? 'warn' : (/Chrome\//.test(ua) ? 'ok' : 'warn'),
+    /Chrome\//.test(ua) && !/OPR\/|SamsungBrowser|Firefox|Edg\//i.test(ua) ? 'Browser looks like Chrome.' : 'This is not plain Chrome. Install may work differently here.');
+add(window.isSecureContext ? 'ok' : 'bad', window.isSecureContext ? 'Secure connection (HTTPS): yes' : 'Not HTTPS');
+add(matchMedia('(display-mode: standalone)').matches ? 'ok' : 'info',
+    matchMedia('(display-mode: standalone)').matches ? 'Running as an installed app now.' : 'Running in a normal browser tab.');
+
+fetch('/manifest.json', {cache:'no-store'}).then(function(r){
+  add(r.ok ? 'ok' : 'bad', 'manifest.json: HTTP ' + r.status + ', type ' + r.headers.get('content-type'));
+  return r.text();
+}).then(function(t){
+  var m; try { m = JSON.parse(t); } catch(e){ add('bad', 'manifest.json is NOT valid JSON (you probably see your website HTML instead). Start: ' + t.slice(0,60)); return; }
+  add('ok', 'manifest valid. name="' + m.name + '", display=' + m.display + ', start_url=' + m.start_url);
+  (m.icons || []).forEach(function(ic){
+    var img = new Image();
+    img.onload = function(){ add('ok', 'icon ' + ic.src + ' loaded (' + img.naturalWidth + 'x' + img.naturalHeight + ')'); };
+    img.onerror = function(){ add('bad', 'icon ' + ic.src + ' FAILED to load'); };
+    img.src = ic.src + '?t=' + Date.now();
+  });
+}).catch(function(e){ add('bad', 'manifest.json could not be fetched: ' + e.message); });
+
+if (!('serviceWorker' in navigator)) {
+  add('bad', 'This browser has no service worker support.');
+} else {
+  navigator.serviceWorker.register('/sw.js').then(function(reg){
+    add('ok', 'Service worker registered. Scope: ' + reg.scope);
+    return navigator.serviceWorker.ready;
+  }).then(function(reg){
+    add('ok', 'Service worker is active: ' + (reg.active ? reg.active.state : 'unknown'));
+  }).catch(function(e){ add('bad', 'Service worker FAILED: ' + e.message); });
+}
+
+var deferred = null;
+window.addEventListener('beforeinstallprompt', function(e){
+  e.preventDefault(); deferred = e;
+  add('ok', 'CHROME SAYS: this app can be installed. Tap the button below.');
+  var b = document.getElementById('inst'); b.hidden = false;
+  b.onclick = function(){ deferred.prompt(); };
+});
+window.addEventListener('appinstalled', function(){ add('ok', 'Installed!'); });
+setTimeout(function(){
+  if (!deferred) add('warn', 'After 6 seconds Chrome has NOT offered install. If every line above is green, refresh this page once and wait 10 seconds; if all green and still no offer, the app may already be installed, or Chrome needs a few more visits.');
+}, 6000);
+</script>
+</body></html>
